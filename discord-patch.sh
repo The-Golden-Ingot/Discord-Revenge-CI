@@ -197,34 +197,22 @@ presign_apk() {
 patch_apk() {
     local input_apk="$1"
     local output_dir="$2"
+    local module_apk="$3"
     
     echo "🔨 Patching $(basename "$input_apk")..."
     
-    # Store LSPatch output
-    local lspatch_log="$WORK_DIR/lspatch.log"
-    
-    # Run LSPatch with full error output
-    java -jar lspatch.jar \
-        "$input_apk" \
-        --module "$MODULE_APK" \
-        --name "$APP_NAME" > "$lspatch_log" 2>&1 || {
-        echo "❌ LSPatch failed with error:"
-        cat "$lspatch_log"
-        return 1
-    }
-    
-    # Find output more reliably
-    local patched_file=$(grep -oP 'Output: \K.*' "$lspatch_log" || true)
-    
-    [ -f "$patched_file" ] || {
-        echo "❌ LSPatch failed to produce output APK. Full log:"
-        cat "$lspatch_log"
-        return 1
-    }
-    
-    echo "🔄 Finalizing patched APK..."
+    # Ensure output directory exists
     mkdir -p "$output_dir"
-    mv "$patched_file" "$output_dir/patched.apk"
+    
+    # Run LSPatch with correct module path
+    if ! java -jar lspatch.jar \
+        "$input_apk" \
+        --module "$module_apk" \
+        --name "$APP_NAME" \
+        --output "$output_dir/patched.apk"; then
+        echo "❌ LSPatch failed to produce output APK. Full log:"
+        return 1
+    fi
     
     return 0
 }
@@ -327,7 +315,7 @@ presign_apk "$MERGED_APK" "$PRESIGNED_APK" || exit 1
 
 # Patch with LSPatch
 echo "⚙️ Starting patching process..."
-patch_apk "$PRESIGNED_APK" "$PATCHED_DIR" || exit 1
+patch_apk "$PRESIGNED_APK" "$PATCHED_DIR" "$MODULE_APK" || exit 1
 
 # Finalize output
 mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
