@@ -77,7 +77,15 @@ jobs:
       if: steps.version-check.outputs.skip != 'true'
       run: |
         sudo apt-get update
-        sudo apt-get install -y curl unzip zipalign apksigner
+        sudo apt-get install -y \
+            curl \
+            unzip \
+            zipalign \
+            apksigner \
+            libc6-dev \
+            libncurses5 \
+            libstdc++6 \
+            zlib1g-dev
 
     - name: Setup Android SDK and tools
       if: steps.version-check.outputs.skip != 'true'
