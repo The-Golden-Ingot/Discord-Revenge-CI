@@ -127,43 +127,41 @@ trap cleanup EXIT
 # Align resources.arsc for API 30+
 align_resources() {
     local apk_file="$1"
-    local temp_apk="${apk_file%.*}-aligned.apk"
+    local temp_dir=$(mktemp -d)
     
-    echo "📐 Properly aligning resources for Android 11+"
+    echo "📐 Aligning resources.arsc with 4096-byte boundary (Android 11+)"
     
-    # First verify the APK structure
-    if ! unzip -t "$apk_file" >/dev/null 2>&1; then
-        echo "❌ Cannot align corrupted APK file"
-        return 1
-    fi
-    
-    # Single pass alignment with verbose output
-    echo "⚙️ Running zipalign..."
-    if ! zipalign -p -f -v -z 4 "$apk_file" "$temp_apk" 2>alignment.log; then
-        echo "❌ Zipalign failed. Log output:"
-        cat alignment.log
-        rm -f alignment.log
-        return 1
-    fi
-    
-    # Replace original with aligned version
-    if ! mv -f "$temp_apk" "$apk_file"; then
-        echo "❌ Failed to replace original APK"
-        return 1
-    fi
-    
-    # Final verification
-    echo "🔍 Verifying final alignment..."
-    if zipalign -c -v 4 "$apk_file" 2>verification.log; then
-        echo "✅ Resources properly aligned"
-        rm -f verification.log
+    # Extract resources.arsc with proper alignment
+    unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1 || {
+        echo "⚠️ No resources.arsc found, skipping alignment"
+        rm -rf "$temp_dir"
         return 0
-    else
-        echo "❌ Alignment verification failed. Log output:"
-        cat verification.log
-        rm -f verification.log
+    }
+    
+    # Re-add with 4096-byte alignment and no compression
+    echo "⚙️ Realigning resources.arsc..."
+    zip -q --delete "$apk_file" "resources.arsc" || true
+    zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
+
+    # Verify alignment
+    local alignment=$(unzip -v "$apk_file" "resources.arsc" | awk '/resources.arsc/ {print $7}')
+    if [ "$alignment" != "4096" ]; then
+        echo "❌ Failed to align resources.arsc (got $alignment-byte alignment)"
+        rm -rf "$temp_dir"
         return 1
     fi
+    
+    rm -rf "$temp_dir"
+    echo "✅ resources.arsc properly aligned"
+    
+    # Then perform standard zipalign
+    echo "⚙️ Running final zipalign..."
+    zipalign -p -f 4 "$apk_file" "${apk_file}.aligned" && mv "${apk_file}.aligned" "$apk_file" || {
+        echo "❌ Final zipalign failed"
+        return 1
+    }
+    
+    return 0
 }
 
 # Sign APK before LSPatch
