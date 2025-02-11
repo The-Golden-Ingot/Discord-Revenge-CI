@@ -356,6 +356,28 @@ mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
 echo -e "\n✅ Successfully built patched Discord!"
 echo "📦 Output file: $(realpath "$OUTPUT_APK")"
 
+# Add before final verification
+echo "🔍 Checking APK identification metadata..."
+APK_BADGING=$(aapt2 dump badging "$OUTPUT_APK" 2>/dev/null || true)
+
+if [ -z "$APK_BADGING" ]; then
+    echo "❌ Failed to read APK identification data"
+    exit 1
+fi
+
+echo "📦 APK Identification Data:"
+echo "$APK_BADGING" | grep -E "package:|versionCode=|versionName="
+
+if ! echo "$APK_BADGING" | grep -q "versionCode="; then
+    echo "❌ Missing versionCode in APK"
+    exit 1
+fi
+
+if ! echo "$APK_BADGING" | grep -q "versionName="; then
+    echo "❌ Missing versionName in APK"
+    exit 1
+fi
+
 # Update the final verification steps
 # Replace the verification section with:
 echo "🔍 Verifying final APK..."
