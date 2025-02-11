@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-PACKAGE_NAME="app.revenge"
+PACKAGE_NAME="app.revenge.discord"
 APP_NAME="Revenge"
 DEBUG_MODE=false
 MIRRORS=(
@@ -331,7 +331,8 @@ echo "🔄 Merging original APKs..."
 MERGED_APK="$MERGED_DIR/merged.apk"
 java -jar APKEditor.jar m \
     -i "$DOWNLOAD_DIR" \
-    -o "$MERGED_APK" || {
+    -o "$MERGED_APK" \
+    -p "$PACKAGE_NAME" || {
         echo "❌ Failed to merge APKs"
         exit 1
     }
@@ -339,6 +340,15 @@ java -jar APKEditor.jar m \
 # Verify merged APK
 if [ ! -f "$MERGED_APK" ] || ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
     echo "❌ Merged APK is invalid"
+    exit 1
+fi
+
+# Add this verification after merging
+echo "🔍 Verifying merged package name..."
+MERGED_PKG=$(aapt2 dump badging "$MERGED_APK" | grep "package: name")
+if [[ "$MERGED_PKG" != *"$PACKAGE_NAME"* ]]; then
+    echo "❌ Merge failed to set package name:"
+    echo "$MERGED_PKG"
     exit 1
 fi
 
