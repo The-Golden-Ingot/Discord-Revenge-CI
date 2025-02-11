@@ -264,12 +264,27 @@ patch_apk() {
     fi
     
     # Final verification after move
-    if [ ! -f "$output_dir/patched.apk" ] || ! unzip -t "$output_dir/patched.apk" >/dev/null 2>&1; then
-        echo "❌ Final verification failed"
+    echo "🔍 Running final verification..."
+    if [ ! -f "$output_dir/patched.apk" ]; then
+        echo "❌ Final APK missing after move"
         return 1
     fi
-    
-    echo "✅ Patched APK verified successfully"
+
+    # Use Java's zip verification instead of unzip
+    if ! jar tvf "$output_dir/patched.apk" >/dev/null 2>&1; then
+        echo "❌ Final APK verification failed - invalid JAR/ZIP structure"
+        echo "⚠️ Attempting to get more details..."
+        jar tvf "$output_dir/patched.apk" | head -n 20
+        return 1
+    fi
+
+    # Additional check for LSPatch assets
+    if ! jar tvf "$output_dir/patched.apk" | grep -q 'assets/lspatch/'; then
+        echo "❌ Final verification failed - missing LSPatch assets"
+        return 1
+    fi
+
+    echo "✅ Final APK verification passed"
     return 0
 }
 
