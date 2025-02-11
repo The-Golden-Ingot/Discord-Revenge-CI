@@ -127,31 +127,32 @@ trap cleanup EXIT
 # Align resources.arsc for API 30+
 align_resources() {
     local apk_file="$1"
-    local temp_dir=$(mktemp -d)
-    local current_dir=$(pwd)
+    local temp_apk="${apk_file%.*}-aligned.apk"
     
-    echo "📐 Aligning resources in $(basename "$apk_file")"
+    echo "📐 Properly aligning resources for Android 11+"
     
-    # Extract resources.arsc
-    if unzip -p "$apk_file" "resources.arsc" > "$temp_dir/resources.arsc"; then
-        # Create new zip without resources.arsc
-        cd "$temp_dir" || return 1
-        unzip "$apk_file" -x "resources.arsc" >/dev/null
-        
-        # Add aligned resources.arsc back
-        zip -0 "$apk_file" "resources.arsc" >/dev/null
-        
-        # Return to original directory
-        cd "$current_dir" || return 1
-        
-        echo "✅ Resources aligned"
-        rm -rf "$temp_dir"
+    # Use zipalign first
+    zipalign -p -f 4 "$apk_file" "$temp_apk" || {
+        echo "❌ Initial zipalign failed"
+        return 1
+    }
+    
+    # Ensure resources.arsc is uncompressed and aligned
+    apksigner rotate --out "$temp_apk" --in "$apk_file" --alignment 4 --verbose || {
+        echo "❌ Failed to align resources.arsc"
+        return 1
+    }
+    
+    # Replace original with aligned version
+    mv -f "$temp_apk" "$apk_file"
+    
+    # Final verification
+    if zipalign -c 4 "$apk_file"; then
+        echo "✅ Resources properly aligned for Android 11+"
         return 0
     else
-        echo "⚠️ No resources.arsc found"
-        cd "$current_dir" || return 1
-        rm -rf "$temp_dir"
-        return 0
+        echo "❌ Final alignment verification failed"
+        return 1
     fi
 }
 
@@ -428,3 +429,11 @@ if ! apksigner verify --verbose "$OUTPUT_APK"; then
 fi
 
 echo "✅ All verifications passed"
+
+# Add after finalizing output (around line 354)
+echo "🔧 Performing final zipalign..."
+FINAL_ALIGNED="${OUTPUT_APK%.*}-aligned.apk"
+zipalign -p -f 4 "$OUTPUT_APK" "$FINAL_ALIGNED" && mv "$FINAL_ALIGNED" "$OUTPUT_APK" || {
+    echo "❌ Final zipalign failed"
+    exit 1
+}
