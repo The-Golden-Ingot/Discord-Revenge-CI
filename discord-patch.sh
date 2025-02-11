@@ -206,7 +206,7 @@ patch_apk() {
         -k "revenge.keystore" \
         "password" \
         "alias" \
-        "password" >/dev/null 2>&1 || {
+        "password" || {
             echo "❌ Patching failed for $(basename "$input")"
             return 1
         }
@@ -214,11 +214,25 @@ patch_apk() {
     # Rename patched APK
     local patched_file=$(find "$output_dir" -name "*-lspatched.apk" | head -n 1)
     if [ -n "$patched_file" ]; then
+        # Verify the patched APK before renaming
+        if ! unzip -t "$patched_file" >/dev/null 2>&1; then
+            echo "❌ LSPatch output verification failed"
+            return 1
+        fi
+        
         mv -v "$patched_file" "$output_dir/patched.apk"
+        
+        # Verify after moving
+        if ! unzip -t "$output_dir/patched.apk" >/dev/null 2>&1; then
+            echo "❌ Moved APK verification failed"
+            return 1
+        fi
     else
         echo "❌ Failed to locate patched file"
         return 1
     fi
+    
+    echo "✅ Patched APK verified"
 }
 
 # Download APKs
@@ -295,17 +309,53 @@ mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
 echo -e "\n✅ Successfully built patched Discord!"
 echo "📦 Output file: $(realpath "$OUTPUT_APK")"
 
-# Add before final echo statements
-echo "🔍 Verifying patched APK..."
-if ! unzip -t "$OUTPUT_APK" >/dev/null 2>&1; then
-    echo "❌ Output APK verification failed"
+# Update the final verification steps
+# Replace the verification section with:
+echo "🔍 Verifying final APK..."
+
+# Check if file exists and is not empty
+if [ ! -f "$OUTPUT_APK" ]; then
+    echo "❌ Output APK does not exist"
     exit 1
 fi
 
-# Verify package name
-if ! aapt2 dump badging "$OUTPUT_APK" | grep -q "package: name='$PACKAGE_NAME'"; then
+if [ ! -s "$OUTPUT_APK" ]; then
+    echo "❌ Output APK is empty"
+    exit 1
+fi
+
+# Detailed zip verification
+if ! unzip -l "$OUTPUT_APK" >/dev/null 2>&1; then
+    echo "❌ Output APK is not a valid zip file"
+    exit 1
+fi
+
+# Try to read the manifest
+if ! unzip -p "$OUTPUT_APK" "AndroidManifest.xml" >/dev/null 2>&1; then
+    echo "❌ Cannot read AndroidManifest.xml from APK"
+    exit 1
+fi
+
+# Verify package name with more detailed output
+echo "📦 Verifying package name..."
+PACKAGE_INFO=$(aapt2 dump badging "$OUTPUT_APK" 2>/dev/null || true)
+if [ -z "$PACKAGE_INFO" ]; then
+    echo "❌ Failed to read package info"
+    exit 1
+fi
+
+if ! echo "$PACKAGE_INFO" | grep -q "package: name='$PACKAGE_NAME'"; then
     echo "❌ Package name verification failed"
+    echo "Expected: $PACKAGE_NAME"
+    echo "Found: $(echo "$PACKAGE_INFO" | grep "package: name" || echo "none")"
     exit 1
 fi
 
-echo "✅ APK verification passed"
+# Verify APK signature
+echo "🔐 Verifying APK signature..."
+if ! apksigner verify --verbose "$OUTPUT_APK"; then
+    echo "❌ APK signature verification failed"
+    exit 1
+fi
+
+echo "✅ All verifications passed"
