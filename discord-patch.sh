@@ -124,33 +124,40 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Replace the align_resources function with direct ZIP manipulation
+# Update the resource injection and alignment logic
 handle_resources_alignment() {
     local apk_file="$1"
     local temp_dir=$(mktemp -d)
     
     echo "📐 Processing resources.arsc in $(basename "$apk_file")..."
     
-    # Always attempt to process resources
-    if unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1 || \
-       unzip -j "$DOWNLOAD_DIR/base.apk" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
-        echo "⚙️ Realigning resources.arsc..."
-        zip -q --delete "$apk_file" "resources.arsc" || true
-        zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
-        
-        # Add verification
-        if ! unzip -l "$apk_file" "resources.arsc" >/dev/null 2>&1; then
-            echo "❌ Critical error: Failed to inject resources.arsc"
-            rm -rf "$temp_dir"
+    # First try merged APK, then base APK
+    if ! unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
+        echo "⚠️ resources.arsc missing in merged APK - injecting from base"
+        if ! unzip -j "$DOWNLOAD_DIR/base.apk" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
+            echo "❌ Failed to extract resources.arsc from base APK"
             return 1
         fi
-    else
-        echo "❌ Fatal error: Could not find resources.arsc in base or merged APK"
-        rm -rf "$temp_dir"
+        # Add with compression level 0
+        zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
+    fi
+    
+    # Always attempt alignment with zipalign
+    echo "⚙️ Realigning resources with zipalign..."
+    if ! zipalign -c 4 "$apk_file"; then
+        echo "🔄 Realigning APK resources..."
+        local aligned_apk="${apk_file%.apk}-aligned.apk"
+        zipalign -p -f 4 "$apk_file" "$aligned_apk" || return 1
+        mv "$aligned_apk" "$apk_file"
+    fi
+    
+    # Verify alignment
+    if ! zipalign -c 4 "$apk_file"; then
+        echo "❌ Failed to align resources.arsc"
         return 1
     fi
     
-    rm -rf "$temp_dir"
+    echo "✅ Resources successfully aligned"
     return 0
 }
 
