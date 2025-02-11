@@ -131,27 +131,37 @@ align_resources() {
     
     echo "📐 Properly aligning resources for Android 11+"
     
-    # First pass alignment with compression
-    zipalign -p -f -z 4 "$apk_file" "$temp_apk" >/dev/null 2>&1 || {
-        echo "❌ Initial zipalign failed"
+    # First verify the APK structure
+    if ! unzip -t "$apk_file" >/dev/null 2>&1; then
+        echo "❌ Cannot align corrupted APK file"
         return 1
-    }
+    fi
     
-    # Second pass without compression for resources.arsc
-    zipalign -p -f 4 "$temp_apk" "$apk_file" >/dev/null 2>&1 || {
-        echo "❌ Final alignment failed"
+    # Single pass alignment with verbose output
+    echo "⚙️ Running zipalign..."
+    if ! zipalign -p -f -v -z 4 "$apk_file" "$temp_apk" 2>alignment.log; then
+        echo "❌ Zipalign failed. Log output:"
+        cat alignment.log
+        rm -f alignment.log
         return 1
-    }
+    fi
     
-    # Clean up temp file
-    rm -f "$temp_apk"
+    # Replace original with aligned version
+    if ! mv -f "$temp_apk" "$apk_file"; then
+        echo "❌ Failed to replace original APK"
+        return 1
+    fi
     
-    # Verify alignment and suppress zip warnings
-    if zipalign -c 4 "$apk_file" 2>/dev/null; then
+    # Final verification
+    echo "🔍 Verifying final alignment..."
+    if zipalign -c -v 4 "$apk_file" 2>verification.log; then
         echo "✅ Resources properly aligned"
+        rm -f verification.log
         return 0
     else
-        echo "❌ Alignment verification failed"
+        echo "❌ Alignment verification failed. Log output:"
+        cat verification.log
+        rm -f verification.log
         return 1
     fi
 }
@@ -336,6 +346,13 @@ java -jar APKEditor.jar m \
         echo "❌ Failed to merge APKs"
         exit 1
     }
+
+# Add this after merging APKs
+echo "🔍 Verifying merged APK structure..."
+if ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
+    echo "❌ Merged APK is corrupted"
+    exit 1
+fi
 
 # After merging APKs
 echo "🔄 Processing merged APK..."
