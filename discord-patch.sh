@@ -283,15 +283,31 @@ for apk in "$DOWNLOAD_DIR"/*.apk; do
     align_apk_resources "$apk"
 done
 
-# Merge APKs after alignment
+# Update the APK merging section
 echo "🔄 Merging aligned APKs..."
 MERGED_APK="$MERGED_DIR/merged.apk"
+echo "⚙️ Using APKEditor to merge splits..."
 java -jar APKEditor.jar m \
     -i "$DOWNLOAD_DIR" \
-    -o "$MERGED_APK" || {
+    -o "$MERGED_APK" \
+    --force-res \
+    --enable-utf8 || {
         echo "❌ Failed to merge APKs"
         exit 1
     }
+
+# Add explicit resources.arsc check after merging
+echo "🔍 Verifying merged APK structure..."
+if ! unzip -l "$MERGED_APK" | grep -q "resources.arsc"; then
+    echo "⚠️ resources.arsc missing in merged APK - injecting base APK resources"
+    unzip -j "$DOWNLOAD_DIR/base.apk" "resources.arsc" -d "$MERGED_DIR" 
+    zip -q -0 "$MERGED_APK" "$MERGED_DIR/resources.arsc"
+    rm -f "$MERGED_DIR/resources.arsc"
+fi
+
+# Update the resource alignment call
+echo "📐 Aligning merged APK resources..."
+handle_resources_alignment "$MERGED_APK"
 
 # After merging APKs
 echo "🔄 Processing merged APK..."
