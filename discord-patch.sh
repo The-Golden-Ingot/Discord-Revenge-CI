@@ -99,80 +99,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Download APKs
-echo "🌐 Downloading Discord v$VERSION APKs..."
-
-# Base APK
-success=false
-for mirror in "${MIRRORS[@]}"; do
-    if [[ "$mirror" == *"tracker"* ]]; then
-        url="${mirror}${VERSION}/base"
-    else
-        url="${mirror}base-${VERSION}.apk"
-    fi
-    
-    if download_with_retry "$url" "$DOWNLOAD_DIR/base.apk"; then
-        success=true
-        break
-    fi
-done
-$success || { echo "❌ Failed to download base APK"; exit 1; }
-
-# Split APKs
-SPLIT_TYPES=("config.${DISCORD_ARCH}" "config.en" "config.xxhdpi")
-for type in "${SPLIT_TYPES[@]}"; do
-    success=false
-    for mirror in "${MIRRORS[@]}"; do
-        if [[ "$mirror" == *"tracker"* ]]; then
-            url="${mirror}${VERSION}/${type}"
-        else
-            url="${mirror}${type}-${VERSION}.apk"
-        fi
-        
-        if download_with_retry "$url" "$DOWNLOAD_DIR/${type}.apk"; then
-            success=true
-            break
-        fi
-    done
-    $success || echo "⚠️ Failed to download split: $type"
-done
-
-# Merge APKs before patching
-echo "🔄 Merging original APKs..."
-MERGED_APK="$MERGED_DIR/merged.apk"
-java -jar APKEditor.jar m \
-    -i "$DOWNLOAD_DIR" \
-    -o "$MERGED_APK" || {
-        echo "❌ Failed to merge APKs"
-        exit 1
-    }
-
-# Verify merged APK
-if [ ! -f "$MERGED_APK" ] || ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
-    echo "❌ Merged APK is invalid"
-    exit 1
-fi
-
-# After merging APKs
-echo "🔄 Processing merged APK..."
-PRESIGNED_APK="$SIGNED_DIR/presigned.apk"
-
-# Align resources first
-align_resources "$MERGED_APK"
-
-# Sign before LSPatch
-presign_apk "$MERGED_APK" "$PRESIGNED_APK" || exit 1
-
-# Patch with LSPatch
-echo "⚙️ Starting patching process..."
-patch_apk "$PRESIGNED_APK" "$PATCHED_DIR" || exit 1
-
-# Finalize output
-mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
-
-echo -e "\n✅ Successfully built patched Discord!"
-echo "📦 Output file: $(realpath "$OUTPUT_APK")"
-
 # Align resources.arsc for API 30+
 align_resources() {
     local apk_file="$1"
@@ -261,6 +187,80 @@ patch_apk() {
         return 1
     fi
 }
+
+# Download APKs
+echo "🌐 Downloading Discord v$VERSION APKs..."
+
+# Base APK
+success=false
+for mirror in "${MIRRORS[@]}"; do
+    if [[ "$mirror" == *"tracker"* ]]; then
+        url="${mirror}${VERSION}/base"
+    else
+        url="${mirror}base-${VERSION}.apk"
+    fi
+    
+    if download_with_retry "$url" "$DOWNLOAD_DIR/base.apk"; then
+        success=true
+        break
+    fi
+done
+$success || { echo "❌ Failed to download base APK"; exit 1; }
+
+# Split APKs
+SPLIT_TYPES=("config.${DISCORD_ARCH}" "config.en" "config.xxhdpi")
+for type in "${SPLIT_TYPES[@]}"; do
+    success=false
+    for mirror in "${MIRRORS[@]}"; do
+        if [[ "$mirror" == *"tracker"* ]]; then
+            url="${mirror}${VERSION}/${type}"
+        else
+            url="${mirror}${type}-${VERSION}.apk"
+        fi
+        
+        if download_with_retry "$url" "$DOWNLOAD_DIR/${type}.apk"; then
+            success=true
+            break
+        fi
+    done
+    $success || echo "⚠️ Failed to download split: $type"
+done
+
+# Merge APKs before patching
+echo "🔄 Merging original APKs..."
+MERGED_APK="$MERGED_DIR/merged.apk"
+java -jar APKEditor.jar m \
+    -i "$DOWNLOAD_DIR" \
+    -o "$MERGED_APK" || {
+        echo "❌ Failed to merge APKs"
+        exit 1
+    }
+
+# Verify merged APK
+if [ ! -f "$MERGED_APK" ] || ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
+    echo "❌ Merged APK is invalid"
+    exit 1
+fi
+
+# After merging APKs
+echo "🔄 Processing merged APK..."
+PRESIGNED_APK="$SIGNED_DIR/presigned.apk"
+
+# Align resources first
+align_resources "$MERGED_APK"
+
+# Sign before LSPatch
+presign_apk "$MERGED_APK" "$PRESIGNED_APK" || exit 1
+
+# Patch with LSPatch
+echo "⚙️ Starting patching process..."
+patch_apk "$PRESIGNED_APK" "$PATCHED_DIR" || exit 1
+
+# Finalize output
+mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
+
+echo -e "\n✅ Successfully built patched Discord!"
+echo "📦 Output file: $(realpath "$OUTPUT_APK")"
 
 # Add before final echo statements
 echo "🔍 Verifying patched APK..."
