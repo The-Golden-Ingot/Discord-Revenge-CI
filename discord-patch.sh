@@ -193,7 +193,7 @@ presign_apk() {
     echo "✅ Successfully signed APK"
 }
 
-# Update the patch_apk function to handle module path correctly
+# Update the patch_apk function to handle LSPatch's output directory structure
 patch_apk() {
     local input_apk="$1"
     local output_dir="$2"
@@ -201,31 +201,40 @@ patch_apk() {
     
     echo "🔨 Patching $(basename "$input_apk")..."
     
-    # Ensure output directory exists
-    mkdir -p "$output_dir"
+    # Create clean output directory
+    local lspatch_out="$output_dir/lspatch_temp"
+    mkdir -p "$lspatch_out"
     
-    # Verify module APK exists
-    if [ ! -f "$module_apk" ]; then
-        echo "❌ Module APK not found: $module_apk"
-        return 1
-    fi
-    
-    # Run LSPatch with absolute paths
+    # Run LSPatch with explicit output naming
     if ! java -jar lspatch.jar \
         "$(realpath "$input_apk")" \
         --module "$(realpath "$module_apk")" \
         --name "$APP_NAME" \
-        --output "$output_dir/patched.apk" 2>&1; then
+        --output "$lspatch_out" \
+        --verbose 2>&1; then
         echo "❌ LSPatch failed to produce output APK"
         return 1
     fi
     
-    # Verify output exists
-    if [ ! -f "$output_dir/patched.apk" ]; then
-        echo "❌ LSPatch did not create output APK"
+    # Find and move the actual output file
+    local output_apk=$(find "$lspatch_out" -name '*-lspatched.apk' | head -1)
+    if [ -f "$output_apk" ]; then
+        mv "$output_apk" "$output_dir/patched.apk"
+        rm -rf "$lspatch_out"
+    else
+        echo "❌ Could not find LSPatch output file"
+        echo "📂 Contents of temp dir:"
+        ls -lR "$lspatch_out"
         return 1
     fi
     
+    # Final verification
+    if [ ! -f "$output_dir/patched.apk" ]; then
+        echo "❌ Final patched APK not found"
+        return 1
+    fi
+    
+    echo "✅ Successfully generated patched APK"
     return 0
 }
 
