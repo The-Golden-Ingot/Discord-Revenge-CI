@@ -143,10 +143,22 @@ align_resources() {
     zip -q --delete "$apk_file" "resources.arsc" || true
     zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
 
-    # Verify alignment
-    local alignment=$(unzip -v "$apk_file" "resources.arsc" | awk '/resources.arsc/ {print $7}')
-    if [ "$alignment" != "4096" ]; then
-        echo "❌ Failed to align resources.arsc (got $alignment-byte alignment)"
+    # More robust alignment verification
+    echo "🔍 Verifying resources.arsc alignment..."
+    local zip_info=$(unzip -v "$apk_file" | grep "resources.arsc")
+    if [ -z "$zip_info" ]; then
+        echo "❌ resources.arsc missing after alignment"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    # Extract size and offset for verification
+    local size=$(echo "$zip_info" | awk '{print $3}')
+    local offset=$(zipinfo -l "$apk_file" | grep "resources.arsc" | awk '{print $3}')
+    
+    if [ -z "$size" ] || [ -z "$offset" ] || [ "$((offset % 4096))" -ne 0 ]; then
+        echo "❌ resources.arsc alignment verification failed"
+        echo "Size: $size, Offset: $offset"
         rm -rf "$temp_dir"
         return 1
     fi
