@@ -337,37 +337,36 @@ java -jar APKEditor.jar m \
     }
 
 echo "✏️ Changing package name to $PACKAGE_NAME..."
-UNPACKED_DIR="$MERGED_DIR/unpacked"
-mkdir -p "$UNPACKED_DIR"
+DECODED_DIR="$MERGED_DIR/decoded"
 
-# Extract merged APK
-unzip -q "$MERGED_APK" -d "$UNPACKED_DIR"
+# Decode APK
+echo "🔍 Decoding APK..."
+apktool d "$MERGED_APK" -o "$DECODED_DIR" -f || {
+    echo "❌ Failed to decode APK"
+    exit 1
+}
 
-# Modify AndroidManifest.xml
-sed -i "s/package=\"[^\"]*\"/package=\"$PACKAGE_NAME\"/" "$UNPACKED_DIR/AndroidManifest.xml"
+# Modify package name in decoded manifest
+sed -i "s/package=\"[^\"]*\"/package=\"$PACKAGE_NAME\"/" "$DECODED_DIR/AndroidManifest.xml"
 
-# Repackage with new package name
-aapt2 link -o "$MERGED_APK" \
-    --manifest "$UNPACKED_DIR/AndroidManifest.xml" \
-    -I android.jar \
-    --rename-manifest-package "$PACKAGE_NAME" \
-    -R "$UNPACKED_DIR/resources.arsc" \
-    --auto-add-overlay
+# Rebuild APK
+echo "🔨 Rebuilding APK..."
+apktool b "$DECODED_DIR" -o "$MERGED_APK.new" || {
+    echo "❌ Failed to rebuild APK"
+    exit 1
+}
+
+# Replace original with modified APK
+mv "$MERGED_APK.new" "$MERGED_APK"
 
 # Clean up
-rm -rf "$UNPACKED_DIR"
+rm -rf "$DECODED_DIR"
 
-# Verify merged APK
-if [ ! -f "$MERGED_APK" ] || ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
-    echo "❌ Merged APK is invalid"
-    exit 1
-fi
-
-# Add this verification after merging
-echo "🔍 Verifying merged package name..."
+# Verify package name change
+echo "🔍 Verifying package name change..."
 MERGED_PKG=$(aapt2 dump badging "$MERGED_APK" | grep "package: name")
 if [[ "$MERGED_PKG" != *"$PACKAGE_NAME"* ]]; then
-    echo "❌ Merge failed to set package name:"
+    echo "❌ Package name change failed:"
     echo "$MERGED_PKG"
     exit 1
 fi
