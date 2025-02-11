@@ -180,6 +180,7 @@ jobs:
         generate_release_notes: true
 
     - name: Cache Keystore
+      if: steps.version-check.outputs.skip != 'true'
       uses: actions/cache@v3
       with:
         path: revenge.keystore
