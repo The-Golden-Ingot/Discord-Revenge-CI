@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-PACKAGE_NAME="app.revenge.discord"
+PACKAGE_NAME="com.discord"
 APP_NAME="Revenge"
 DEBUG_MODE=false
 MIRRORS=(
@@ -336,41 +336,6 @@ java -jar APKEditor.jar m \
         exit 1
     }
 
-echo "✏️ Changing package name to $PACKAGE_NAME..."
-DECODED_DIR="$MERGED_DIR/decoded"
-
-# Decode APK
-echo "🔍 Decoding APK..."
-apktool d "$MERGED_APK" -o "$DECODED_DIR" -f || {
-    echo "❌ Failed to decode APK"
-    exit 1
-}
-
-# Modify package name in decoded manifest
-sed -i "s/package=\"[^\"]*\"/package=\"$PACKAGE_NAME\"/" "$DECODED_DIR/AndroidManifest.xml"
-
-# Rebuild APK
-echo "🔨 Rebuilding APK..."
-apktool b "$DECODED_DIR" -o "$MERGED_APK.new" || {
-    echo "❌ Failed to rebuild APK"
-    exit 1
-}
-
-# Replace original with modified APK
-mv "$MERGED_APK.new" "$MERGED_APK"
-
-# Clean up
-rm -rf "$DECODED_DIR"
-
-# Verify package name change
-echo "🔍 Verifying package name change..."
-MERGED_PKG=$(aapt2 dump badging "$MERGED_APK" | grep "package: name")
-if [[ "$MERGED_PKG" != *"$PACKAGE_NAME"* ]]; then
-    echo "❌ Package name change failed:"
-    echo "$MERGED_PKG"
-    exit 1
-fi
-
 # After merging APKs
 echo "🔄 Processing merged APK..."
 PRESIGNED_APK="$SIGNED_DIR/presigned.apk"
@@ -426,9 +391,9 @@ if [ -z "$PACKAGE_INFO" ]; then
     exit 1
 fi
 
-if ! echo "$PACKAGE_INFO" | grep -q "package: name='$PACKAGE_NAME'"; then
+if ! echo "$PACKAGE_INFO" | grep -q "package: name='com.discord'"; then
     echo "❌ Package name verification failed"
-    echo "Expected: $PACKAGE_NAME"
+    echo "Expected: com.discord"
     echo "Found: $(echo "$PACKAGE_INFO" | grep "package: name" || echo "none")"
     exit 1
 fi
