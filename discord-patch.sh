@@ -131,24 +131,23 @@ handle_resources_alignment() {
     
     echo "📐 Processing resources.arsc in $(basename "$apk_file")..."
     
-    # Extract resources.arsc if exists
-    if unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
-        # Remove and re-add with 4096-byte alignment and no compression
+    # Always attempt to process resources
+    if unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1 || \
+       unzip -j "$DOWNLOAD_DIR/base.apk" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
         echo "⚙️ Realigning resources.arsc..."
         zip -q --delete "$apk_file" "resources.arsc" || true
         zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
         
-        # Verify entry offset
-        local offset=$(zipinfo -l "$apk_file" | awk '/resources.arsc/ {print $3}')
-        if [ -n "$offset" ] && [ $((offset % 4096)) -eq 0 ]; then
-            echo "✅ resources.arsc properly aligned at offset $offset"
-        else
-            echo "❌ Failed to align resources.arsc"
+        # Add verification
+        if ! unzip -l "$apk_file" "resources.arsc" >/dev/null 2>&1; then
+            echo "❌ Critical error: Failed to inject resources.arsc"
             rm -rf "$temp_dir"
             return 1
         fi
     else
-        echo "ℹ️ No resources.arsc found, skipping alignment"
+        echo "❌ Fatal error: Could not find resources.arsc in base or merged APK"
+        rm -rf "$temp_dir"
+        return 1
     fi
     
     rm -rf "$temp_dir"
@@ -194,25 +193,28 @@ patch_apk() {
     
     echo "🔨 Patching $(basename "$input_apk")..."
     
-    # Process resources before LSPatch
-    if ! handle_resources_alignment "$input_apk"; then
-        echo "❌ Resource alignment failed"
-        return 1
-    fi
+    # Store LSPatch output
+    local lspatch_log="$WORK_DIR/lspatch.log"
     
-    # LSPatch the APK
-    local patched_file
-    patched_file=$(java -jar lspatch.jar \
+    # Run LSPatch with full error output
+    java -jar lspatch.jar \
         "$input_apk" \
         --module "$MODULE_APK" \
-        --name "$APP_NAME" 2>&1 | grep -o '/tmp/.*-lspatched\.apk' || true)
-    
-    [ -f "$patched_file" ] || {
-        echo "❌ LSPatch failed to produce output APK"
+        --name "$APP_NAME" > "$lspatch_log" 2>&1 || {
+        echo "❌ LSPatch failed with error:"
+        cat "$lspatch_log"
         return 1
     }
     
-    # Post-patch processing
+    # Find output more reliably
+    local patched_file=$(grep -oP 'Output: \K.*' "$lspatch_log" || true)
+    
+    [ -f "$patched_file" ] || {
+        echo "❌ LSPatch failed to produce output APK. Full log:"
+        cat "$lspatch_log"
+        return 1
+    }
+    
     echo "🔄 Finalizing patched APK..."
     mkdir -p "$output_dir"
     mv "$patched_file" "$output_dir/patched.apk"
