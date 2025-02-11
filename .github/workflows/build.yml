@@ -80,6 +80,7 @@ jobs:
         sudo apt-get install -y curl unzip zipalign apksigner
 
     - name: Setup Android SDK and tools
+      if: steps.version-check.outputs.skip != 'true'
       run: |
         curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
         unzip cmdline-tools.zip
