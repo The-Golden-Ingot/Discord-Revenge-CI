@@ -280,7 +280,13 @@ done
 echo "🔄 Processing downloaded APKs..."
 for apk in "$DOWNLOAD_DIR"/*.apk; do
     [ -f "$apk" ] || continue
-    align_apk_resources "$apk"
+    echo "📐 Processing $(basename "$apk")..."
+    
+    # Full resource alignment using handle_resources_alignment
+    if ! handle_resources_alignment "$apk"; then
+        echo "❌ Resource alignment failed for $(basename "$apk")"
+        exit 1
+    fi
 done
 
 # Update the APK merging section
@@ -411,4 +417,19 @@ fi
 if ! jar tf APKEditor.jar >/dev/null 2>&1; then
     echo "❌ APKEditor.jar is corrupted"
     exit 1
+fi
+
+# Update the merge verification (replace lines 297-304)
+echo "🔍 Verifying merged APK structure..."
+if ! unzip -l "$MERGED_APK" | grep -q "resources.arsc"; then
+    echo "⚠️ resources.arsc missing in merged APK - injecting from base"
+    unzip -j "$DOWNLOAD_DIR/base.apk" "resources.arsc" -d "$MERGED_DIR"
+    zip -q -0 -X "$MERGED_APK" "$MERGED_DIR/resources.arsc"
+    rm -f "$MERGED_DIR/resources.arsc"
+    
+    # Re-align merged APK
+    if ! handle_resources_alignment "$MERGED_APK"; then
+        echo "❌ Failed to align merged APK resources"
+        exit 1
+    fi
 fi
