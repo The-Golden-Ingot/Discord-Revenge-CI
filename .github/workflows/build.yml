@@ -177,3 +177,24 @@ jobs:
         files: discord-revenge-*.apk
         prerelease: false
         generate_release_notes: true
+
+    - name: Cache Keystore
+      uses: actions/cache@v3
+      with:
+        path: revenge.keystore
+        key: keystore
+
+    - name: Generate Keystore if missing
+      if: steps.version-check.outputs.skip != 'true'
+      run: |
+        if [ ! -f "revenge.keystore" ]; then
+          keytool -genkey -v \
+            -keystore revenge.keystore \
+            -alias revenge \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 10000 \
+            -storepass password \
+            -keypass password \
+            -dname "CN=Revenge,OU=Android,O=Revenge,C=US"
+        fi

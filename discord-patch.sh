@@ -99,18 +99,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Generate temporary keystore
-KEYSTORE="$WORK_DIR/keystore.jks"
-keytool -genkey -v \
-    -keystore "$KEYSTORE" \
-    -alias android \
-    -keyalg RSA \
-    -keysize 2048 \
-    -validity 10000 \
-    -storepass password \
-    -keypass password \
-    -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
-
 # APK signing function
 sign_apk() {
     local input="$1" output="$2"
@@ -188,7 +176,11 @@ patch_apk() {
     java -jar lspatch.jar \
         -m "$MODULE_APK" \
         -o "$output_dir" \
-        -f "$input" >/dev/null 2>&1 || {
+        -f "$input" \
+        --keystore "revenge.keystore" \
+        --keystore-pwd "password" \
+        --key-alias "revenge" \
+        --key-pwd "password" >/dev/null 2>&1 || {
             echo "❌ Patching failed for $(basename "$input")"
             return 1
         }
