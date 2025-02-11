@@ -193,7 +193,7 @@ presign_apk() {
     echo "✅ Successfully signed APK"
 }
 
-# Patch with LSPatch
+# Update the patch_apk function to handle module path correctly
 patch_apk() {
     local input_apk="$1"
     local output_dir="$2"
@@ -204,13 +204,25 @@ patch_apk() {
     # Ensure output directory exists
     mkdir -p "$output_dir"
     
-    # Run LSPatch with correct module path
+    # Verify module APK exists
+    if [ ! -f "$module_apk" ]; then
+        echo "❌ Module APK not found: $module_apk"
+        return 1
+    fi
+    
+    # Run LSPatch with absolute paths
     if ! java -jar lspatch.jar \
-        "$input_apk" \
-        --module "$module_apk" \
+        "$(realpath "$input_apk")" \
+        --module "$(realpath "$module_apk")" \
         --name "$APP_NAME" \
-        --output "$output_dir/patched.apk"; then
-        echo "❌ LSPatch failed to produce output APK. Full log:"
+        --output "$output_dir/patched.apk" 2>&1; then
+        echo "❌ LSPatch failed to produce output APK"
+        return 1
+    fi
+    
+    # Verify output exists
+    if [ ! -f "$output_dir/patched.apk" ]; then
+        echo "❌ LSPatch did not create output APK"
         return 1
     fi
     
@@ -313,9 +325,17 @@ PRESIGNED_APK="$SIGNED_DIR/presigned.apk"
 # Sign before LSPatch
 presign_apk "$MERGED_APK" "$PRESIGNED_APK" || exit 1
 
-# Patch with LSPatch
+# Update the patch invocation (around line 318)
+if [ ! -f "$MODULE_APK" ]; then
+    echo "❌ Module APK not found: $MODULE_APK"
+    exit 1
+fi
+
 echo "⚙️ Starting patching process..."
-patch_apk "$PRESIGNED_APK" "$PATCHED_DIR" "$MODULE_APK" || exit 1
+if ! patch_apk "$PRESIGNED_APK" "$PATCHED_DIR" "$MODULE_APK"; then
+    echo "🛑 Error preserved workdir: $WORK_DIR"
+    exit 1
+fi
 
 # Finalize output
 mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
