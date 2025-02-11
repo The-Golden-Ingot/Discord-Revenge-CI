@@ -1,0 +1,184 @@
+name: Build Patched Discord
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'discord-patch.sh'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Delete previous workflow runs
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const runs = await github.rest.actions.listWorkflowRunsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            status: 'completed'
+          });
+          for (const run of runs.data.workflow_runs) {
+            if (run.id !== context.runId) {
+              console.log(`Deleting workflow run ${run.id}`);
+              await github.rest.actions.deleteWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id
+              });
+            }
+          }
+
+    - name: Install GitHub CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        sudo apt-get update
+        sudo apt-get install -y gh
+
+    - name: Check for new version
+      id: version-check
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        LATEST_VERSION=$(curl -s https://tracker.vendetta.rocks/tracker/index | grep -o '"beta":[0-9]*' | cut -d':' -f2)
+        if gh release view latest >/dev/null 2>&1; then
+          CURRENT_VERSION=$(gh release view latest --json assets --jq '.assets[].name' | grep -oP 'discord-revenge-\K\d+' | head -1)
+          if [ "$CURRENT_VERSION" == "$LATEST_VERSION" ]; then
+            echo "🔄 Version $LATEST_VERSION already exists - skipping build"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "🧹 Cleaning up old release assets"
+            gh release delete-asset latest $(gh release view latest --json assets --jq '.assets[].name') --yes || true
+          fi
+        fi
+        echo "🚀 New version $LATEST_VERSION detected"
+        echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+        echo "skip=false" >> $GITHUB_OUTPUT
+
+    - name: Set up JDK
+      if: steps.version-check.outputs.skip != 'true'
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+
+    - name: Install dependencies
+      if: steps.version-check.outputs.skip != 'true'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl unzip zipalign apksigner
+
+    - name: Setup Android SDK and tools
+      run: |
+        curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+        unzip cmdline-tools.zip
+        mkdir -p $HOME/android-sdk/cmdline-tools
+        mv cmdline-tools latest
+        mv latest $HOME/android-sdk/cmdline-tools/
+        echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+        echo "PATH=$PATH:$HOME/android-sdk/cmdline-tools/latest/bin:$HOME/android-sdk/platform-tools:$HOME/android-sdk/build-tools/34.0.0" >> $GITHUB_ENV
+        yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "build-tools;34.0.0"
+        curl -L -o apktool https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+        curl -L -o apktool.jar https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar
+        chmod +x apktool
+        sudo mv apktool /usr/local/bin/
+        sudo mv apktool.jar /usr/local/bin/
+
+    - name: Download LSPatch
+      if: steps.version-check.outputs.skip != 'true'
+      run: |
+        curl -L -o lspatch.jar \
+          https://github.com/JingMatrix/LSPatch/releases/latest/download/lspatch.jar
+        if [ ! -f "lspatch.jar" ] || [ ! -s "lspatch.jar" ]; then
+          echo "❌ Failed to download LSPatch.jar"
+          exit 1
+        fi
+        
+    - name: Download APKEditor
+      if: steps.version-check.outputs.skip != 'true'
+      run: |
+        # Download latest APKEditor release
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest | grep "browser_download_url.*jar" | cut -d '"' -f 4)
+        if [ -z "$DOWNLOAD_URL" ]; then
+          echo "❌ Could not find APKEditor.jar download URL"
+          exit 1
+        fi
+        
+        echo "📥 Downloading from: $DOWNLOAD_URL"
+        curl -L -o APKEditor.jar "$DOWNLOAD_URL"
+        
+        # Verify the download
+        if [ ! -f "APKEditor.jar" ] || [ ! -s "APKEditor.jar" ]; then
+          echo "❌ Failed to download APKEditor.jar"
+          exit 1
+        fi
+        
+        # Verify it's a valid jar file
+        if ! jar tf APKEditor.jar >/dev/null 2>&1; then
+          echo "❌ Downloaded APKEditor.jar is not a valid jar file"
+          exit 1
+        fi
+        
+        echo "✅ Successfully downloaded and verified APKEditor.jar"
+        
+    - name: Download Revenge Module
+      if: steps.version-check.outputs.skip != 'true'
+      run: |
+        curl -L -o module.apk \
+          https://github.com/revenge-mod/revenge-xposed/releases/latest/download/app-release.apk
+        if [ ! -f "module.apk" ] || [ ! -s "module.apk" ]; then
+          echo "❌ Failed to download module APK"
+          exit 1
+        fi
+
+    - name: Make script executable
+      if: steps.version-check.outputs.skip != 'true'
+      run: chmod +x discord-patch.sh
+
+    - name: Patch Discord
+      id: patch
+      if: steps.version-check.outputs.skip != 'true'
+      run: |
+        if ! ./discord-patch.sh ${{ steps.version-check.outputs.version }} module.apk discord-revenge-${{ steps.version-check.outputs.version }}.apk; then
+          echo "❌ Failed to patch Discord"
+          exit 1
+        fi
+
+    - name: Upload Patched APK
+      if: steps.version-check.outputs.skip != 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: discord-revenge
+        path: discord-revenge-*.apk
+        if-no-files-found: error
+        compression-level: 6
+        overwrite: false
+
+    - name: Create Release
+      if: steps.version-check.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: "latest"
+        name: "${{ steps.version-check.outputs.version }}"
+        files: discord-revenge-*.apk
+        prerelease: false
+        generate_release_notes: true
+        replaces_existing: true
