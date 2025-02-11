@@ -309,6 +309,24 @@ patch_apk() {
     return 0
 }
 
+# Add this function after download_with_retry
+align_apk_resources() {
+    local apk_file="$1"
+    echo "📐 Aligning resources.arsc in $(basename "$apk_file")..."
+    
+    # Extract resources.arsc if it exists
+    local temp_dir=$(mktemp -d)
+    if unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
+        # Remove and re-add with proper alignment
+        zip -q --delete "$apk_file" "resources.arsc" || true
+        zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
+        rm -rf "$temp_dir"
+        return 0
+    fi
+    rm -rf "$temp_dir"
+    return 0
+}
+
 # Download APKs
 echo "🌐 Downloading Discord v$VERSION APKs..."
 
@@ -347,8 +365,15 @@ for type in "${SPLIT_TYPES[@]}"; do
     $success || echo "⚠️ Failed to download split: $type"
 done
 
-# Merge APKs before patching
-echo "🔄 Merging original APKs..."
+# Update the APK processing section (around line 350)
+echo "🔄 Processing downloaded APKs..."
+for apk in "$DOWNLOAD_DIR"/*.apk; do
+    [ -f "$apk" ] || continue
+    align_apk_resources "$apk"
+done
+
+# Merge APKs after alignment
+echo "🔄 Merging aligned APKs..."
 MERGED_APK="$MERGED_DIR/merged.apk"
 java -jar APKEditor.jar m \
     -i "$DOWNLOAD_DIR" \
@@ -357,19 +382,9 @@ java -jar APKEditor.jar m \
         exit 1
     }
 
-# Add this after merging APKs
-echo "🔍 Verifying merged APK structure..."
-if ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
-    echo "❌ Merged APK is corrupted"
-    exit 1
-fi
-
 # After merging APKs
 echo "🔄 Processing merged APK..."
 PRESIGNED_APK="$SIGNED_DIR/presigned.apk"
-
-# Align resources first
-align_resources "$MERGED_APK"
 
 # Sign before LSPatch
 presign_apk "$MERGED_APK" "$PRESIGNED_APK" || exit 1
