@@ -99,22 +99,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# APK signing function
-sign_apk() {
-    local input="$1" output="$2"
-    echo "🔏 Signing $(basename "$input")..."
-    cp "$input" "$output" || return 1
-    apksigner sign \
-        --ks "$KEYSTORE" \
-        --ks-pass pass:password \
-        --key-pass pass:password \
-        --min-sdk-version 23 \
-        "$output" >/dev/null 2>&1 || {
-            echo "❌ Failed to sign APK"
-            return 1
-        }
-}
-
 # Download APKs
 echo "🌐 Downloading Discord v$VERSION APKs..."
 
@@ -198,14 +182,8 @@ patch_apk() {
 echo "⚙️ Starting patching process..."
 patch_apk "$MERGED_APK" "$PATCHED_DIR" || exit 1
 
-# Sign patched APK
-echo "🖊️ Signing patched file..."
-PATCHED_APK="$PATCHED_DIR/patched.apk"
-SIGNED_APK="$SIGNED_DIR/patched-signed.apk"
-sign_apk "$PATCHED_APK" "$SIGNED_APK" || exit 1
-
 # Finalize output
-mv "$SIGNED_APK" "$OUTPUT_APK"
+mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
 
 echo -e "\n✅ Successfully built patched Discord!"
 echo "📦 Output file: $(realpath "$OUTPUT_APK")"
