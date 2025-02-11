@@ -331,11 +331,31 @@ echo "🔄 Merging original APKs..."
 MERGED_APK="$MERGED_DIR/merged.apk"
 java -jar APKEditor.jar m \
     -i "$DOWNLOAD_DIR" \
-    -o "$MERGED_APK" \
-    -p "$PACKAGE_NAME" || {
+    -o "$MERGED_APK" || {
         echo "❌ Failed to merge APKs"
         exit 1
     }
+
+echo "✏️ Changing package name to $PACKAGE_NAME..."
+UNPACKED_DIR="$MERGED_DIR/unpacked"
+mkdir -p "$UNPACKED_DIR"
+
+# Extract merged APK
+unzip -q "$MERGED_APK" -d "$UNPACKED_DIR"
+
+# Modify AndroidManifest.xml
+sed -i "s/package=\"[^\"]*\"/package=\"$PACKAGE_NAME\"/" "$UNPACKED_DIR/AndroidManifest.xml"
+
+# Repackage with new package name
+aapt2 link -o "$MERGED_APK" \
+    --manifest "$UNPACKED_DIR/AndroidManifest.xml" \
+    -I android.jar \
+    --rename-manifest-package "$PACKAGE_NAME" \
+    -R "$UNPACKED_DIR/resources.arsc" \
+    --auto-add-overlay
+
+# Clean up
+rm -rf "$UNPACKED_DIR"
 
 # Verify merged APK
 if [ ! -f "$MERGED_APK" ] || ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
