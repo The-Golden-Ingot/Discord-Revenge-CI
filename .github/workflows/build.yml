@@ -76,6 +76,7 @@ jobs:
     - name: Install dependencies
       if: steps.version-check.outputs.skip != 'true'
       run: |
+        sudo add-apt-repository universe
         sudo apt-get update
         sudo apt-get install -y \
             curl \
@@ -83,7 +84,7 @@ jobs:
             zipalign \
             apksigner \
             libc6-dev \
-            libncurses5 \
+            libncurses6 \
             libstdc++6 \
             zlib1g-dev
 
