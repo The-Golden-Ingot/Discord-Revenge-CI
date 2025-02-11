@@ -289,11 +289,19 @@ MERGED_APK="$MERGED_DIR/merged.apk"
 echo "⚙️ Using APKEditor to merge splits..."
 java -jar APKEditor.jar m \
     -i "$DOWNLOAD_DIR" \
-    -o "$MERGED_APK" \
-    -p "$PACKAGE_NAME" || {
+    -o "$MERGED_APK" || {
         echo "❌ Failed to merge APKs"
         exit 1
     }
+
+# Add package name verification after merging
+echo "🔍 Verifying merged package name..."
+MERGED_PKG=$(aapt2 dump badging "$MERGED_APK" | grep "package: name")
+if [[ "$MERGED_PKG" != *"$PACKAGE_NAME"* ]]; then
+    echo "❌ Merge failed to set package name:"
+    echo "$MERGED_PKG"
+    exit 1
+fi
 
 # After merging APKs
 echo "🔄 Processing merged APK..."
