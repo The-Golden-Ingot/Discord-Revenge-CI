@@ -131,22 +131,24 @@ align_resources() {
     
     echo "📐 Properly aligning resources for Android 11+"
     
-    # First pass alignment
-    zipalign -p -f 4 "$apk_file" "$temp_apk" || {
+    # First pass alignment with compression
+    zipalign -p -f -z 4 "$apk_file" "$temp_apk" >/dev/null 2>&1 || {
         echo "❌ Initial zipalign failed"
         return 1
     }
     
-    # Second pass to ensure resources.arsc is uncompressed
-    zipalign -p -f -z 4 "$temp_apk" "$apk_file" || {
+    # Second pass without compression for resources.arsc
+    zipalign -p -f 4 "$temp_apk" "$apk_file" >/dev/null 2>&1 || {
         echo "❌ Final alignment failed"
         return 1
     }
     
-    # Verify alignment
-    if zipalign -c 4 "$apk_file"; then
+    # Clean up temp file
+    rm -f "$temp_apk"
+    
+    # Verify alignment and suppress zip warnings
+    if zipalign -c 4 "$apk_file" 2>/dev/null; then
         echo "✅ Resources properly aligned"
-        rm -f "$temp_apk"
         return 0
     else
         echo "❌ Alignment verification failed"
