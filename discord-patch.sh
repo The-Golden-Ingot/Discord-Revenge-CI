@@ -124,55 +124,34 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Align resources.arsc for API 30+
-align_resources() {
+# Replace the align_resources function with direct ZIP manipulation
+handle_resources_alignment() {
     local apk_file="$1"
     local temp_dir=$(mktemp -d)
     
-    echo "📐 Aligning resources.arsc with 4096-byte boundary (Android 11+)"
+    echo "📐 Processing resources.arsc in $(basename "$apk_file")..."
     
-    # Extract resources.arsc with proper alignment
-    unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1 || {
-        echo "⚠️ No resources.arsc found, skipping alignment"
-        rm -rf "$temp_dir"
-        return 0
-    }
-    
-    # Re-add with 4096-byte alignment and no compression
-    echo "⚙️ Realigning resources.arsc..."
-    zip -q --delete "$apk_file" "resources.arsc" || true
-    zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
-
-    # More robust alignment verification
-    echo "🔍 Verifying resources.arsc alignment..."
-    local zip_info=$(unzip -v "$apk_file" | grep "resources.arsc")
-    if [ -z "$zip_info" ]; then
-        echo "❌ resources.arsc missing after alignment"
-        rm -rf "$temp_dir"
-        return 1
-    fi
-
-    # Extract size and offset for verification
-    local size=$(echo "$zip_info" | awk '{print $3}')
-    local offset=$(zipinfo -l "$apk_file" | grep "resources.arsc" | awk '{print $3}')
-    
-    if [ -z "$size" ] || [ -z "$offset" ] || [ "$((offset % 4096))" -ne 0 ]; then
-        echo "❌ resources.arsc alignment verification failed"
-        echo "Size: $size, Offset: $offset"
-        rm -rf "$temp_dir"
-        return 1
+    # Extract resources.arsc if exists
+    if unzip -j "$apk_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
+        # Remove and re-add with 4096-byte alignment and no compression
+        echo "⚙️ Realigning resources.arsc..."
+        zip -q --delete "$apk_file" "resources.arsc" || true
+        zip -q -0 -X "$apk_file" "$temp_dir/resources.arsc"
+        
+        # Verify entry offset
+        local offset=$(zipinfo -l "$apk_file" | awk '/resources.arsc/ {print $3}')
+        if [ -n "$offset" ] && [ $((offset % 4096)) -eq 0 ]; then
+            echo "✅ resources.arsc properly aligned at offset $offset"
+        else
+            echo "❌ Failed to align resources.arsc"
+            rm -rf "$temp_dir"
+            return 1
+        fi
+    else
+        echo "ℹ️ No resources.arsc found, skipping alignment"
     fi
     
     rm -rf "$temp_dir"
-    echo "✅ resources.arsc properly aligned"
-    
-    # Then perform standard zipalign
-    echo "⚙️ Running final zipalign..."
-    zipalign -p -f 4 "$apk_file" "${apk_file}.aligned" && mv "${apk_file}.aligned" "$apk_file" || {
-        echo "❌ Final zipalign failed"
-        return 1
-    }
-    
     return 0
 }
 
@@ -215,38 +194,26 @@ patch_apk() {
     
     echo "🔨 Patching $(basename "$input_apk")..."
     
-    # Pre-LSPatch alignment
-    local temp_aligned="${input_apk%.*}-prealigned.apk"
-    echo "📐 Pre-patch alignment..."
-    if ! zipalign -p -f 4 "$input_apk" "$temp_aligned"; then
-        echo "❌ Pre-patch alignment failed"
+    # Process resources before LSPatch
+    if ! handle_resources_alignment "$input_apk"; then
+        echo "❌ Resource alignment failed"
         return 1
     fi
     
-    # LSPatch the pre-aligned APK
+    # LSPatch the APK
     local patched_file
     patched_file=$(java -jar lspatch.jar \
-        "$temp_aligned" \
+        "$input_apk" \
         --module "$MODULE_APK" \
         --name "$APP_NAME" 2>&1 | grep -o '/tmp/.*-lspatched\.apk' || true)
-    
-    rm -f "$temp_aligned"  # Clean up temporary file
     
     [ -f "$patched_file" ] || {
         echo "❌ LSPatch failed to produce output APK"
         return 1
     }
     
-    # Post-patch resource alignment (Revenge Manager style)
-    echo "📐 Aligning resources.arsc..."
-    local temp_dir=$(mktemp -d)
-    if unzip -j "$patched_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
-        zip -q --delete "$patched_file" "resources.arsc" || true
-        zip -q -0 -X "$patched_file" "$temp_dir/resources.arsc"
-    fi
-    rm -rf "$temp_dir"
-    
-    # Move to output location
+    # Post-patch processing
+    echo "🔄 Finalizing patched APK..."
     mkdir -p "$output_dir"
     mv "$patched_file" "$output_dir/patched.apk"
     
