@@ -210,102 +210,46 @@ presign_apk() {
 
 # Patch with LSPatch
 patch_apk() {
-    local input="$1" output_dir="$2"
-    echo "🔨 Patching $(basename "$input")..."
+    local input_apk="$1"
+    local output_dir="$2"
     
-    # Convert paths to absolute paths as required by LSPatch
-    local abs_input="$(cd "$(dirname "$input")" &> /dev/null && pwd)/$(basename "$input")"
-    local abs_module="$(cd "$(dirname "$MODULE_APK")" &> /dev/null && pwd)/$(basename "$MODULE_APK")"
+    echo "🔨 Patching $(basename "$input_apk")..."
     
-    # Clean output directory first
-    rm -f "$output_dir"/*-lspatched.apk
-    
-    # Run LSPatch with detailed output
-    java -jar lspatch.jar \
-        -m "$abs_module" \
-        -o "$output_dir" \
-        -l 0 \
-        -v \
-        -f \
-        "$abs_input" \
-        -k "revenge.keystore" \
-        "password" \
-        "alias" \
-        "password" || {
-            echo "❌ LSPatch failed for $(basename "$input")"
-            return 1
-        }
-    
-    # Find the patched APK with more detailed error handling
-    local patched_file=$(find "$output_dir" -name "*-lspatched.apk" -type f 2>/dev/null | head -n 1)
-    if [ -z "$patched_file" ]; then
-        echo "❌ Could not find patched APK in output directory"
-        ls -la "$output_dir"
+    # Pre-LSPatch alignment
+    local temp_aligned="${input_apk%.*}-prealigned.apk"
+    echo "📐 Pre-patch alignment..."
+    if ! zipalign -p -f 4 "$input_apk" "$temp_aligned"; then
+        echo "❌ Pre-patch alignment failed"
         return 1
     fi
     
-    echo "📦 Found patched APK: $(basename "$patched_file")"
+    # LSPatch the pre-aligned APK
+    local patched_file
+    patched_file=$(java -jar lspatch.jar \
+        "$temp_aligned" \
+        --module "$MODULE_APK" \
+        --name "$APP_NAME" 2>&1 | grep -o '/tmp/.*-lspatched\.apk' || true)
     
-    # Verify file exists and has size
-    if [ ! -f "$patched_file" ]; then
-        echo "❌ Patched file does not exist"
-        return 1
-    fi
+    rm -f "$temp_aligned"  # Clean up temporary file
     
-    if [ ! -s "$patched_file" ]; then
-        echo "❌ Patched file is empty"
+    [ -f "$patched_file" ] || {
+        echo "❌ LSPatch failed to produce output APK"
         return 1
-    fi
+    }
     
-    # Detailed verification of the patched APK
-    echo "🔍 Verifying patched APK structure..."
-    if ! unzip -l "$patched_file" >/dev/null 2>&1; then
-        echo "❌ Patched APK is not a valid zip file"
-        return 1
+    # Post-patch resource alignment (Revenge Manager style)
+    echo "📐 Aligning resources.arsc..."
+    local temp_dir=$(mktemp -d)
+    if unzip -j "$patched_file" "resources.arsc" -d "$temp_dir" >/dev/null 2>&1; then
+        zip -q --delete "$patched_file" "resources.arsc" || true
+        zip -q -0 -X "$patched_file" "$temp_dir/resources.arsc"
     fi
+    rm -rf "$temp_dir"
     
-    # Verify AndroidManifest.xml exists
-    if ! unzip -l "$patched_file" | grep -q "AndroidManifest.xml"; then
-        echo "❌ Patched APK missing AndroidManifest.xml"
-        return 1
-    fi
+    # Move to output location
+    mkdir -p "$output_dir"
+    mv "$patched_file" "$output_dir/patched.apk"
     
-    # Verify LSPatch components
-    echo "🔍 Verifying LSPatch components..."
-    if ! unzip -l "$patched_file" | grep -q "assets/lspatch/"; then
-        echo "❌ Patched APK missing LSPatch assets"
-        return 1
-    fi
-    
-    # Move verified APK to final location
-    echo "📦 Moving verified APK to final location..."
-    if ! mv -f "$patched_file" "$output_dir/patched.apk"; then
-        echo "❌ Failed to move patched APK"
-        return 1
-    fi
-    
-    # Final verification after move
-    echo "🔍 Running final verification..."
-    if [ ! -f "$output_dir/patched.apk" ]; then
-        echo "❌ Final APK missing after move"
-        return 1
-    fi
-
-    # Use Java's zip verification instead of unzip
-    if ! jar tvf "$output_dir/patched.apk" >/dev/null 2>&1; then
-        echo "❌ Final APK verification failed - invalid JAR/ZIP structure"
-        echo "⚠️ Attempting to get more details..."
-        jar tvf "$output_dir/patched.apk" | head -n 20
-        return 1
-    fi
-
-    # Additional check for LSPatch assets
-    if ! jar tvf "$output_dir/patched.apk" | grep -q 'assets/lspatch/'; then
-        echo "❌ Final verification failed - missing LSPatch assets"
-        return 1
-    fi
-
-    echo "✅ Final APK verification passed"
     return 0
 }
 
@@ -471,14 +415,6 @@ if ! apksigner verify --verbose "$OUTPUT_APK"; then
 fi
 
 echo "✅ All verifications passed"
-
-# Add after finalizing output (around line 354)
-echo "🔧 Performing final zipalign..."
-FINAL_ALIGNED="${OUTPUT_APK%.*}-aligned.apk"
-zipalign -p -f 4 "$OUTPUT_APK" "$FINAL_ALIGNED" && mv "$FINAL_ALIGNED" "$OUTPUT_APK" || {
-    echo "❌ Final zipalign failed"
-    exit 1
-}
 
 # Update the APKEditor download section
 echo "📥 Downloading APKEditor..."
