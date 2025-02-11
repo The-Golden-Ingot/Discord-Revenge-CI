@@ -196,6 +196,10 @@ patch_apk() {
     local abs_input="$(cd "$(dirname "$input")" &> /dev/null && pwd)/$(basename "$input")"
     local abs_module="$(cd "$(dirname "$MODULE_APK")" &> /dev/null && pwd)/$(basename "$MODULE_APK")"
     
+    # Clean output directory first
+    rm -f "$output_dir"/*-lspatched.apk
+    
+    # Run LSPatch with detailed output
     java -jar lspatch.jar \
         -m "$abs_module" \
         -o "$output_dir" \
@@ -207,32 +211,66 @@ patch_apk() {
         "password" \
         "alias" \
         "password" || {
-            echo "❌ Patching failed for $(basename "$input")"
+            echo "❌ LSPatch failed for $(basename "$input")"
             return 1
         }
     
-    # Rename patched APK
-    local patched_file=$(find "$output_dir" -name "*-lspatched.apk" | head -n 1)
-    if [ -n "$patched_file" ]; then
-        # Verify the patched APK before renaming
-        if ! unzip -t "$patched_file" >/dev/null 2>&1; then
-            echo "❌ LSPatch output verification failed"
-            return 1
-        fi
-        
-        mv -v "$patched_file" "$output_dir/patched.apk"
-        
-        # Verify after moving
-        if ! unzip -t "$output_dir/patched.apk" >/dev/null 2>&1; then
-            echo "❌ Moved APK verification failed"
-            return 1
-        fi
-    else
-        echo "❌ Failed to locate patched file"
+    # Find the patched APK with more detailed error handling
+    local patched_file=$(find "$output_dir" -name "*-lspatched.apk" -type f 2>/dev/null | head -n 1)
+    if [ -z "$patched_file" ]; then
+        echo "❌ Could not find patched APK in output directory"
+        ls -la "$output_dir"
         return 1
     fi
     
-    echo "✅ Patched APK verified"
+    echo "📦 Found patched APK: $(basename "$patched_file")"
+    
+    # Verify file exists and has size
+    if [ ! -f "$patched_file" ]; then
+        echo "❌ Patched file does not exist"
+        return 1
+    fi
+    
+    if [ ! -s "$patched_file" ]; then
+        echo "❌ Patched file is empty"
+        return 1
+    fi
+    
+    # Detailed verification of the patched APK
+    echo "🔍 Verifying patched APK structure..."
+    if ! unzip -l "$patched_file" >/dev/null 2>&1; then
+        echo "❌ Patched APK is not a valid zip file"
+        return 1
+    fi
+    
+    # Verify AndroidManifest.xml exists
+    if ! unzip -l "$patched_file" | grep -q "AndroidManifest.xml"; then
+        echo "❌ Patched APK missing AndroidManifest.xml"
+        return 1
+    fi
+    
+    # Verify LSPatch components
+    echo "🔍 Verifying LSPatch components..."
+    if ! unzip -l "$patched_file" | grep -q "assets/lspatch/"; then
+        echo "❌ Patched APK missing LSPatch assets"
+        return 1
+    fi
+    
+    # Move verified APK to final location
+    echo "📦 Moving verified APK to final location..."
+    if ! mv -f "$patched_file" "$output_dir/patched.apk"; then
+        echo "❌ Failed to move patched APK"
+        return 1
+    fi
+    
+    # Final verification after move
+    if [ ! -f "$output_dir/patched.apk" ] || ! unzip -t "$output_dir/patched.apk" >/dev/null 2>&1; then
+        echo "❌ Final verification failed"
+        return 1
+    fi
+    
+    echo "✅ Patched APK verified successfully"
+    return 0
 }
 
 # Download APKs
