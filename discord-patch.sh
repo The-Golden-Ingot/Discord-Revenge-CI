@@ -193,7 +193,7 @@ presign_apk() {
     echo "✅ Successfully signed APK"
 }
 
-# Update the patch_apk function to handle LSPatch's output directory structure
+# Update the patch_apk function to fix module path handling
 patch_apk() {
     local input_apk="$1"
     local output_dir="$2"
@@ -205,13 +205,20 @@ patch_apk() {
     local lspatch_out="$output_dir/lspatch_temp"
     mkdir -p "$lspatch_out"
     
-    # Run LSPatch with explicit output naming
+    # Ensure absolute paths and verify files
+    local abs_input=$(realpath "$input_apk")
+    local abs_module=$(realpath "$module_apk")
+    
+    echo "📦 Using input APK: $abs_input"
+    echo "📦 Using module APK: $abs_module"
+    
+    # Run LSPatch with correct module path
     if ! java -jar lspatch.jar \
-        "$(realpath "$input_apk")" \
-        --module "$(realpath "$module_apk")" \
+        "$abs_input" \
+        -m "$abs_module" \
+        -o "$lspatch_out" \
         --name "$APP_NAME" \
-        --output "$lspatch_out" \
-        --verbose 2>&1; then
+        --force 2>&1; then
         echo "❌ LSPatch failed to produce output APK"
         return 1
     fi
@@ -228,13 +235,6 @@ patch_apk() {
         return 1
     fi
     
-    # Final verification
-    if [ ! -f "$output_dir/patched.apk" ]; then
-        echo "❌ Final patched APK not found"
-        return 1
-    fi
-    
-    echo "✅ Successfully generated patched APK"
     return 0
 }
 
@@ -425,23 +425,32 @@ fi
 
 echo "✅ All verifications passed"
 
-# Update the APKEditor download section
-echo "📥 Downloading APKEditor..."
-APKEDITOR_URL="https://github.com/REAndroid/APKEditor/releases/download/v1.4.2/APKEditor-1.4.2.jar"
-curl -L -o APKEditor.jar "$APKEDITOR_URL" || {
-    echo "❌ Failed to download APKEditor"
-    exit 1
+# Update the APKEditor download section with better error handling
+download_apkeditor() {
+    echo "📥 Downloading APKEditor..."
+    local APKEDITOR_URL="https://github.com/REAndroid/APKEditor/releases/download/v1.4.2/APKEditor-1.4.2.jar"
+    local max_retries=3
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        echo "📥 Attempting download (try $((retry_count+1))/$max_retries)"
+        if curl -L -o APKEditor.jar "$APKEDITOR_URL" && \
+           [ -s "APKEditor.jar" ] && \
+           jar tf APKEditor.jar >/dev/null 2>&1; then
+            echo "✅ Successfully downloaded APKEditor"
+            return 0
+        fi
+        rm -f APKEditor.jar
+        retry_count=$((retry_count + 1))
+        sleep 2
+    done
+    
+    echo "❌ Failed to download valid APKEditor.jar after $max_retries attempts"
+    return 1
 }
 
-# Verify the download
-if [ ! -f "APKEditor.jar" ] || [ ! -s "APKEditor.jar" ]; then
-    echo "❌ Downloaded APKEditor.jar is invalid"
-    exit 1
-fi
-
-# Verify it's a valid jar file
-if ! jar tf APKEditor.jar >/dev/null 2>&1; then
-    echo "❌ APKEditor.jar is corrupted"
+# Replace the existing APKEditor download section with the new function
+if ! download_apkeditor; then
     exit 1
 fi
 
