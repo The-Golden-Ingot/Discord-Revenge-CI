@@ -181,4 +181,3 @@ jobs:
         files: discord-revenge-*.apk
         prerelease: false
         generate_release_notes: true
-        replaces_existing: true
