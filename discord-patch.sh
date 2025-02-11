@@ -437,3 +437,23 @@ zipalign -p -f 4 "$OUTPUT_APK" "$FINAL_ALIGNED" && mv "$FINAL_ALIGNED" "$OUTPUT_
     echo "❌ Final zipalign failed"
     exit 1
 }
+
+# Update the APKEditor download section
+echo "📥 Downloading APKEditor..."
+APKEDITOR_URL="https://github.com/REAndroid/APKEditor/releases/download/v1.4.2/APKEditor-1.4.2.jar"
+curl -L -o APKEditor.jar "$APKEDITOR_URL" || {
+    echo "❌ Failed to download APKEditor"
+    exit 1
+}
+
+# Verify the download
+if [ ! -f "APKEditor.jar" ] || [ ! -s "APKEditor.jar" ]; then
+    echo "❌ Downloaded APKEditor.jar is invalid"
+    exit 1
+fi
+
+# Verify it's a valid jar file
+if ! jar tf APKEditor.jar >/dev/null 2>&1; then
+    echo "❌ APKEditor.jar is corrupted"
+    exit 1
+fi
