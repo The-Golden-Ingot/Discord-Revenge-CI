@@ -193,7 +193,7 @@ presign_apk() {
     echo "✅ Successfully signed APK"
 }
 
-# Update the patch_apk function to fix module path handling
+# Update the patch_apk function to use correct LSPatch arguments
 patch_apk() {
     local input_apk="$1"
     local output_dir="$2"
@@ -212,13 +212,13 @@ patch_apk() {
     echo "📦 Using input APK: $abs_input"
     echo "📦 Using module APK: $abs_module"
     
-    # Run LSPatch with correct module path
+    # Run LSPatch with correct argument order and format
     if ! java -jar lspatch.jar \
         "$abs_input" \
         -m "$abs_module" \
         -o "$lspatch_out" \
-        --name "$APP_NAME" \
-        --force 2>&1; then
+        -f \
+        -v; then
         echo "❌ LSPatch failed to produce output APK"
         return 1
     fi
@@ -425,16 +425,26 @@ fi
 
 echo "✅ All verifications passed"
 
-# Update the APKEditor download section with better error handling
+# Update the APKEditor download function to use GitHub API
 download_apkeditor() {
     echo "📥 Downloading APKEditor..."
-    local APKEDITOR_URL="https://github.com/REAndroid/APKEditor/releases/download/v1.4.2/APKEditor-1.4.2.jar"
+    # Get latest release URL from GitHub API
+    local DOWNLOAD_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest | \
+        grep "browser_download_url.*jar" | \
+        cut -d '"' -f 4)
+    
+    if [ -z "$DOWNLOAD_URL" ]; then
+        echo "❌ Could not find APKEditor download URL"
+        return 1
+    fi
+    
+    echo "📥 Downloading from: $DOWNLOAD_URL"
     local max_retries=3
     local retry_count=0
     
     while [ $retry_count -lt $max_retries ]; do
         echo "📥 Attempting download (try $((retry_count+1))/$max_retries)"
-        if curl -L -o APKEditor.jar "$APKEDITOR_URL" && \
+        if curl -L -o APKEditor.jar "$DOWNLOAD_URL" && \
            [ -s "APKEditor.jar" ] && \
            jar tf APKEditor.jar >/dev/null 2>&1; then
             echo "✅ Successfully downloaded APKEditor"
