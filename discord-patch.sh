@@ -80,6 +80,31 @@ case "$ARCH" in
     *) echo "❌ Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
+# Add after dependency checks, before workspace setup
+# Generate keystore if missing
+echo "🔑 Checking keystore..."
+if [ ! -f "revenge.keystore" ]; then
+    echo "📝 Generating new keystore..."
+    keytool -genkey -v \
+        -keystore revenge.keystore \
+        -alias alias \
+        -keyalg RSA \
+        -keysize 2048 \
+        -validity 10000 \
+        -storepass password \
+        -keypass password \
+        -dname "CN=Revenge Manager" || {
+        echo "❌ Failed to generate keystore"
+        exit 1
+    }
+fi
+
+# Verify keystore exists and is valid
+if ! keytool -list -keystore revenge.keystore -storepass password >/dev/null 2>&1; then
+    echo "❌ Invalid keystore file"
+    exit 1
+fi
+
 # Setup workspace
 WORK_DIR=$(mktemp -d)
 DOWNLOAD_DIR="$WORK_DIR/downloads"
@@ -103,23 +128,28 @@ trap cleanup EXIT
 align_resources() {
     local apk_file="$1"
     local temp_dir=$(mktemp -d)
+    local current_dir=$(pwd)
     
     echo "📐 Aligning resources in $(basename "$apk_file")"
     
     # Extract resources.arsc
     if unzip -p "$apk_file" "resources.arsc" > "$temp_dir/resources.arsc"; then
         # Create new zip without resources.arsc
-        cd "$temp_dir"
+        cd "$temp_dir" || return 1
         unzip "$apk_file" -x "resources.arsc" >/dev/null
         
         # Add aligned resources.arsc back
         zip -0 "$apk_file" "resources.arsc" >/dev/null
+        
+        # Return to original directory
+        cd "$current_dir" || return 1
         
         echo "✅ Resources aligned"
         rm -rf "$temp_dir"
         return 0
     else
         echo "⚠️ No resources.arsc found"
+        cd "$current_dir" || return 1
         rm -rf "$temp_dir"
         return 0
     fi
@@ -129,25 +159,28 @@ align_resources() {
 presign_apk() {
     local input_apk="$1"
     local output_apk="$2"
+    local abs_input="$(cd "$(dirname "$input_apk")" &> /dev/null && pwd)/$(basename "$input_apk")"
+    local abs_output="$(cd "$(dirname "$output_apk")" &> /dev/null && pwd)/$(basename "$output_apk")"
+    local abs_keystore="$(pwd)/revenge.keystore"
     
     echo "📝 Signing APK: $(basename "$input_apk")"
     
     # First copy the input APK
-    cp "$input_apk" "$output_apk" || {
+    cp "$abs_input" "$abs_output" || {
         echo "❌ Failed to copy APK"
         return 1
     }
     
     # Then sign in place
-    apksigner sign --ks "revenge.keystore" \
+    apksigner sign --ks "$abs_keystore" \
         --ks-key-alias alias \
         --ks-pass pass:password \
         --key-pass pass:password \
         --v2-signing-enabled true \
         --v3-signing-enabled true \
-        "$output_apk" || {
+        "$abs_output" || {
         echo "❌ Failed to sign APK"
-        rm -f "$output_apk"
+        rm -f "$abs_output"
         return 1
     }
     
