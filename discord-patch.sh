@@ -153,21 +153,105 @@ if [ ! -f "$MERGED_APK" ] || ! unzip -t "$MERGED_APK" >/dev/null 2>&1; then
     exit 1
 fi
 
+# After merging APKs
+echo "🔄 Processing merged APK..."
+PRESIGNED_APK="$SIGNED_DIR/presigned.apk"
+
+# Align resources first
+align_resources "$MERGED_APK"
+
+# Sign before LSPatch
+presign_apk "$MERGED_APK" "$PRESIGNED_APK" || exit 1
+
+# Patch with LSPatch
+echo "⚙️ Starting patching process..."
+patch_apk "$PRESIGNED_APK" "$PATCHED_DIR" || exit 1
+
+# Finalize output
+mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
+
+echo -e "\n✅ Successfully built patched Discord!"
+echo "📦 Output file: $(realpath "$OUTPUT_APK")"
+
+# Align resources.arsc for API 30+
+align_resources() {
+    local apk_file="$1"
+    local temp_dir=$(mktemp -d)
+    
+    echo "📐 Aligning resources in $(basename "$apk_file")"
+    
+    # Extract resources.arsc
+    if unzip -p "$apk_file" "resources.arsc" > "$temp_dir/resources.arsc"; then
+        # Create new zip without resources.arsc
+        cd "$temp_dir"
+        unzip "$apk_file" -x "resources.arsc" >/dev/null
+        
+        # Add aligned resources.arsc back
+        zip -0 "$apk_file" "resources.arsc" >/dev/null
+        
+        echo "✅ Resources aligned"
+        rm -rf "$temp_dir"
+        return 0
+    else
+        echo "⚠️ No resources.arsc found"
+        rm -rf "$temp_dir"
+        return 0
+    fi
+}
+
+# Sign APK before LSPatch
+presign_apk() {
+    local input_apk="$1"
+    local output_apk="$2"
+    
+    echo "📝 Signing APK: $(basename "$input_apk")"
+    
+    # First copy the input APK
+    cp "$input_apk" "$output_apk" || {
+        echo "❌ Failed to copy APK"
+        return 1
+    }
+    
+    # Then sign in place
+    apksigner sign --ks "revenge.keystore" \
+        --ks-key-alias alias \
+        --ks-pass pass:password \
+        --key-pass pass:password \
+        --v2-signing-enabled true \
+        --v3-signing-enabled true \
+        "$output_apk" || {
+        echo "❌ Failed to sign APK"
+        rm -f "$output_apk"
+        return 1
+    }
+    
+    echo "✅ Successfully signed APK"
+}
+
 # Patch with LSPatch
 patch_apk() {
     local input="$1" output_dir="$2"
     echo "🔨 Patching $(basename "$input")..."
+    
+    # Convert paths to absolute paths as required by LSPatch
+    local abs_input="$(cd "$(dirname "$input")" &> /dev/null && pwd)/$(basename "$input")"
+    local abs_module="$(cd "$(dirname "$MODULE_APK")" &> /dev/null && pwd)/$(basename "$MODULE_APK")"
+    
     java -jar lspatch.jar \
-        -m "$MODULE_APK" \
+        -m "$abs_module" \
         -o "$output_dir" \
-        -f "$input" \
-        --keystore "revenge.keystore" \
-        --keystore-pwd "password" \
-        --key-alias "revenge" \
-        --key-pwd "password" >/dev/null 2>&1 || {
+        -l 0 \
+        -v \
+        -f \
+        "$abs_input" \
+        -k "revenge.keystore" \
+        "password" \
+        "alias" \
+        "password" >/dev/null 2>&1 || {
             echo "❌ Patching failed for $(basename "$input")"
             return 1
         }
+    
     # Rename patched APK
     local patched_file=$(find "$output_dir" -name "*-lspatched.apk" | head -n 1)
     if [ -n "$patched_file" ]; then
@@ -178,12 +262,17 @@ patch_apk() {
     fi
 }
 
-# Patch merged APK
-echo "⚙️ Starting patching process..."
-patch_apk "$MERGED_APK" "$PATCHED_DIR" || exit 1
+# Add before final echo statements
+echo "🔍 Verifying patched APK..."
+if ! unzip -t "$OUTPUT_APK" >/dev/null 2>&1; then
+    echo "❌ Output APK verification failed"
+    exit 1
+fi
 
-# Finalize output
-mv "$PATCHED_DIR/patched.apk" "$OUTPUT_APK"
+# Verify package name
+if ! aapt2 dump badging "$OUTPUT_APK" | grep -q "package: name='$PACKAGE_NAME'"; then
+    echo "❌ Package name verification failed"
+    exit 1
+fi
 
-echo -e "\n✅ Successfully built patched Discord!"
-echo "📦 Output file: $(realpath "$OUTPUT_APK")"
+echo "✅ APK verification passed"
