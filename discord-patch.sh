@@ -256,6 +256,47 @@ align_apk_resources() {
     return 0
 }
 
+# Download required tools
+download_apkeditor() {
+    echo "📥 Downloading APKEditor..."
+    local DOWNLOAD_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest | \
+        grep "browser_download_url.*jar" | \
+        cut -d '"' -f 4)
+    
+    if [ -z "$DOWNLOAD_URL" ]; then
+        echo "❌ Could not find APKEditor download URL"
+        return 1
+    fi
+    
+    echo "📥 Downloading from: $DOWNLOAD_URL"
+    local max_retries=3
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        echo "📥 Attempting download (try $((retry_count+1))/$max_retries)"
+        if curl -L -o APKEditor.jar "$DOWNLOAD_URL" && \
+           [ -s "APKEditor.jar" ] && \
+           jar tf APKEditor.jar >/dev/null 2>&1; then
+            echo "✅ Successfully downloaded APKEditor"
+            return 0
+        fi
+        rm -f APKEditor.jar
+        retry_count=$((retry_count + 1))
+        sleep 2
+    done
+    
+    echo "❌ Failed to download valid APKEditor.jar after $max_retries attempts"
+    return 1
+}
+
+# Download required tools before processing
+echo "📥 Downloading required tools..."
+if [ ! -f "APKEditor.jar" ]; then
+    if ! download_apkeditor; then
+        exit 1
+    fi
+fi
+
 # Download APKs
 echo "🌐 Downloading Discord v$VERSION APKs..."
 
@@ -424,45 +465,6 @@ if ! apksigner verify --verbose "$OUTPUT_APK"; then
 fi
 
 echo "✅ All verifications passed"
-
-# Update the APKEditor download function to use GitHub API
-download_apkeditor() {
-    echo "📥 Downloading APKEditor..."
-    # Get latest release URL from GitHub API
-    local DOWNLOAD_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest | \
-        grep "browser_download_url.*jar" | \
-        cut -d '"' -f 4)
-    
-    if [ -z "$DOWNLOAD_URL" ]; then
-        echo "❌ Could not find APKEditor download URL"
-        return 1
-    fi
-    
-    echo "📥 Downloading from: $DOWNLOAD_URL"
-    local max_retries=3
-    local retry_count=0
-    
-    while [ $retry_count -lt $max_retries ]; do
-        echo "📥 Attempting download (try $((retry_count+1))/$max_retries)"
-        if curl -L -o APKEditor.jar "$DOWNLOAD_URL" && \
-           [ -s "APKEditor.jar" ] && \
-           jar tf APKEditor.jar >/dev/null 2>&1; then
-            echo "✅ Successfully downloaded APKEditor"
-            return 0
-        fi
-        rm -f APKEditor.jar
-        retry_count=$((retry_count + 1))
-        sleep 2
-    done
-    
-    echo "❌ Failed to download valid APKEditor.jar after $max_retries attempts"
-    return 1
-}
-
-# Replace the existing APKEditor download section with the new function
-if ! download_apkeditor; then
-    exit 1
-fi
 
 # Update the merge verification (replace lines 297-304)
 echo "🔍 Verifying merged APK structure..."
