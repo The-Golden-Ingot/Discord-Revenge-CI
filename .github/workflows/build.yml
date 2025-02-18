@@ -50,7 +50,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        LATEST_VERSION=$(curl -s https://tracker.vendetta.rocks/tracker/index | grep -o '"beta":[0-9]*' | cut -d':' -f2)
+        LATEST_VERSION=$(curl -s https://tracker.vendetta.rocks/tracker/index | grep -o '"stable":[0-9]*' | cut -d':' -f2)
         if gh release view latest >/dev/null 2>&1; then
           CURRENT_VERSION=$(gh release view latest --json assets --jq '.assets[].name' | grep -oP 'discord-revenge-\K\d+' | head -1)
           if [ "$CURRENT_VERSION" == "$LATEST_VERSION" ]; then
