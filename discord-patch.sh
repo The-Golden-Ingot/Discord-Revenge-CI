@@ -9,8 +9,8 @@ MIRRORS=(
     "https://tracker.vendetta.rocks/tracker/download/"
     "https://proxy.vendetta.rocks/tracker/download/"
     "https://vd.k6.tf/tracker/download/"
-    "https://discord.com/api/download/beta/android/"
-    "https://dl.discordapp.net/apps/android/beta/"
+    "https://discord.com/api/download/stable/android/"
+    "https://dl.discordapp.net/apps/android/stable/"
 )
 
 # Enhanced download function
